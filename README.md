@@ -47,3 +47,28 @@ python build_dataset.py --out dist \
 ```
 
 Genera `dist/pois-iberia.json.gz` y `dist/pois-iberia.meta.json`.
+
+## Mapa sin conexión
+
+Un segundo workflow (`.github/workflows/maps.yml`, "Construir mapa sin conexión") se ejecuta el día 1 de cada mes a las 04:00 UTC (también a mano desde Actions). Descarga los extractos de Geofabrik de España, Portugal y Andorra, los une con osmium y genera con [Planetiler](https://github.com/onthegomap/planetiler) (v0.10.2, fijada) un único `iberia.pmtiles` con el esquema OpenMapTiles hasta el zoom 14, el mismo que usan los estilos de OpenFreeMap. Tarda entre 1 y 2 horas.
+
+Se publica en la release `maps-latest`:
+
+- `iberia.pmtiles.part00`, `part01`, ...: el mapa partido en trozos de 1,9 GB (límite de GitHub: 2 GB por fichero). La app los descarga en orden y los concatena.
+- `map-assets.zip`: estilos (`styles/<n>.json`, con los marcadores `{{PMTILES}}` y `{{ASSETS}}`), sprites y tipografías necesarios para dibujar el mapa sin conexión. Lo genera `build_map_assets.py` a partir de los estilos liberty, bright, positron y dark de OpenFreeMap.
+- `maps-meta.json`: `{"v","generated","maxzoom","bounds":[w,s,e,n],"totalBytes","sha256","parts":[{"file","bytes","sha256"}],"assets":{"file","bytes","sha256"}}`. Se sube el último, así la app nunca ve un meta que apunte a partes inexistentes. Las partes que ya no se generan se borran de la release.
+
+URLs fijas: `https://github.com/mxgd04/caravan-poi-data/releases/download/maps-latest/<fichero>`.
+
+En local (Python 3.11, Java 21 y osmium-tool):
+
+```
+python build_map_assets.py --out dist
+java -Xmx12g -jar planetiler.jar --osm-path=in/iberia.osm.pbf --output=dist/iberia.pmtiles --download --force --maxzoom=14
+split -b 1900M -d -a 2 dist/iberia.pmtiles dist/iberia.pmtiles.part
+python build_maps_meta.py --dist dist --bbox "w,s,e,n"
+```
+
+### Licencia del mapa
+
+Mapa © OpenMapTiles © colaboradores de OpenStreetMap (ODbL) — https://openmaptiles.org/ y https://www.openstreetmap.org/copyright

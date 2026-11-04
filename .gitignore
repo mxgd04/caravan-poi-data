@@ -2,3 +2,5 @@ in/
 dist/
 __pycache__/
 __pycache__/
+build-assets/
+maps-in/
