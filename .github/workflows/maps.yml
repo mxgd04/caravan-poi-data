@@ -49,6 +49,31 @@ jobs:
             "https://github.com/onthegomap/planetiler/releases/download/${PLANETILER_VERSION}/planetiler.jar"
           echo "${PLANETILER_SHA256}  planetiler.jar" | sha256sum -c -
 
+      - name: Polígonos de agua (osmdata o copia propia)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # osmdata.openstreetmap.de cae a menudo: se guarda una copia en la release "sources" de este repo.
+          # Planetiler no vuelve a descargar un fichero que ya existe en data/sources.
+          mkdir -p data/sources
+          F=data/sources/water-polygons-split-3857.zip
+          if curl -fL --connect-timeout 30 --max-time 900 --retry 2 -o "$F" \
+               https://osmdata.openstreetmap.de/download/water-polygons-split-3857.zip \
+             && unzip -tq "$F"; then
+            echo "Descargado de osmdata; actualizando la copia propia"
+            gh release view sources >/dev/null 2>&1 || gh release create sources --title "Fuentes auxiliares" \
+              --notes "Copia de water-polygons-split-3857.zip (© colaboradores de OpenStreetMap, ODbL) para cuando osmdata.openstreetmap.de no responde."
+            gh release upload sources "$F" --clobber
+          else
+            echo "osmdata no responde; usando la copia propia"
+            rm -f "$F"
+            if ! gh release download sources --pattern water-polygons-split-3857.zip --dir data/sources; then
+              echo "::error::osmdata.openstreetmap.de no responde y aún no hay copia propia. Vuelve a lanzar el workflow más tarde."
+              exit 1
+            fi
+          fi
+          ls -l data/sources
+
       - name: Generar iberia.pmtiles (esquema OpenMapTiles)
         run: |
           # --download baja las fuentes auxiliares (agua, lagos, Natural Earth); osmdata.openstreetmap.de falla a veces, de ahí los reintentos
