@@ -47,6 +47,9 @@ KEEP_KEYS = [
     "sanitary_dump_station", "drinking_water", "water_point", "power_supply", "electricity",
     "toilets", "shower", "wifi", "internet_access", "fee", "charge", "website", "contact:website",
     "phone", "contact:phone", "opening_hours", "maxstay", "capacity", "access", "description",
+    # Primera impresión en la ficha
+    "stars", "image", "wikimedia_commons", "capacity:motorhomes", "capacity:caravans", "dog",
+    "maxlength", "reservation", "surface",
 ]
 FIRST_VALUE_KEYS = {"website", "contact:website", "phone", "contact:phone"}
 MAX_DESCRIPTION = 300
