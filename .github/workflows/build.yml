@@ -1,0 +1,47 @@
+name: Construir dataset de POIs
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'   # cada lunes a las 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Descargar extractos de Geofabrik
+        run: |
+          mkdir -p in
+          for region in spain portugal andorra; do
+            curl -fL --retry 3 -o "in/${region}.osm.pbf" "https://download.geofabrik.de/europe/${region}-latest.osm.pbf"
+            curl -fL --retry 3 -o "in/${region}.poly" "https://download.geofabrik.de/europe/${region}.poly"
+          done
+
+      - name: Construir dataset
+        run: |
+          python build_dataset.py --out dist \
+            --region spain:in/spain.osm.pbf:in/spain.poly \
+            --region portugal:in/portugal.osm.pbf:in/portugal.poly \
+            --region andorra:in/andorra.osm.pbf:in/andorra.poly
+
+      - name: Publicar en la release "latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view latest || gh release create latest --title "Datos POI" \
+            --notes "Dataset semanal de puntos de interés para caravanas. Datos © colaboradores de OpenStreetMap, disponibles bajo la ODbL 1.0 — https://www.openstreetmap.org/copyright"
+          gh release upload latest dist/* --clobber
