@@ -32,13 +32,14 @@ YES_DESIGNATED = {"yes", "designated"}
 TOURISM = {"caravan_site", "camp_site"}
 AMENITY = {"sanitary_dump_station", "drinking_water", "water_point", "toilets", "fuel"}
 HIGHWAY = {"rest_area", "services"}
+SPEED_CAMERA = "speed_camera"  # solo nodos
 
 # Pares clave/valor que preseleccionan en C++; el resto de condiciones se comprueban en matches().
 TAG_PAIRS = (
     [("tourism", v) for v in TOURISM]
     + [("amenity", v) for v in AMENITY | {"parking"}]
     + [("sanitary_dump_station", "yes")]
-    + [("highway", v) for v in HIGHWAY]
+    + [("highway", v) for v in HIGHWAY | {SPEED_CAMERA}]
 )
 
 # Claves que lee la app (PoiClassifier y PoiDetails).
@@ -51,15 +52,19 @@ KEEP_KEYS = [
     "stars", "image", "wikimedia_commons", "capacity:motorhomes", "capacity:caravans", "dog",
     "maxlength", "reservation", "surface",
 ]
+# Solo para radares fijos (no se añaden al resto de POIs para no cambiar su salida)
+CAMERA_KEYS = ["maxspeed", "direction"]
 FIRST_VALUE_KEYS = {"website", "contact:website", "phone", "contact:phone"}
 MAX_DESCRIPTION = 300
 
 REGION_RE = re.compile(r"^([^:]+):((?:[A-Za-z]:)?[^:]+):((?:[A-Za-z]:)?[^:]+)$")
 
 
-def matches(tags):
+def matches(tags, is_node=False):
     amenity = tags.get("amenity")
     return (
+        (is_node and tags.get("highway") == SPEED_CAMERA)
+        or
         tags.get("tourism") in TOURISM
         or amenity in AMENITY
         or tags.get("sanitary_dump_station") == "yes"
@@ -71,7 +76,8 @@ def matches(tags):
 
 def clean_tags(tags):
     out = {}
-    for key in KEEP_KEYS:
+    keys = KEEP_KEYS + CAMERA_KEYS if tags.get("highway") == SPEED_CAMERA else KEEP_KEYS
+    for key in keys:
         value = tags.get(key)
         if value is None:
             continue
@@ -114,7 +120,7 @@ def read_region(path):
           .with_filter(osmium.filter.TagFilter(*TAG_PAIRS)))
     for obj in fp:
         tags = tag_dict(obj)
-        if not matches(tags):
+        if not matches(tags, obj.is_node()):
             continue
         if obj.is_node():
             if obj.location.valid():
