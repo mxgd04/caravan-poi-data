@@ -133,6 +133,9 @@ def read_region(path):
                .with_locations("flex_mem")
                .with_filter(osmium.filter.IdFilter(wanted)))
         for way in fp2:
+            # IdFilter también deja pasar nodos cuyo id coincide con el de una vía (espacios de ids distintos)
+            if not way.is_way():
+                continue
             center = way_center(way)
             if center:
                 centers[way.id] = center
