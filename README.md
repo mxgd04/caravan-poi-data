@@ -50,6 +50,8 @@ Genera `dist/pois-iberia.json.gz` y `dist/pois-iberia.meta.json`.
 
 `build_restrictions.py` (mismos argumentos) genera `dist/restrictions-iberia.json.gz` y `restrictions-iberia.meta.json`: restricciones que ORS no aplica (alto/ancho/peso/largo en nodos, vías físicamente estrechas), como `[id, lat, lon, rumbo, tipo, valor]` con tipo H/W/N/T/L.
 
+`build_lanes.py` (mismos argumentos) genera `dist/lanes-iberia.json.gz` y `lanes-iberia.meta.json`: carriles (`turn:lanes`, tipo `L`, en el final de la vía) y carteles (`destination`, `destination:ref`, salida; tipo `S`, en el inicio de la vía), como `[id, lat, lon, rumbo, tipo, ...]`.
+
 ## Mapa sin conexión
 
 Un segundo workflow (`.github/workflows/maps.yml`, "Construir mapa sin conexión") se ejecuta el día 1 de cada mes a las 04:00 UTC (también a mano desde Actions). Descarga los extractos de Geofabrik de España, Portugal y Andorra, los une con osmium y genera con [Planetiler](https://github.com/onthegomap/planetiler) (v0.10.2, fijada) un único `iberia.pmtiles` con el esquema OpenMapTiles hasta el zoom 14, el mismo que usan los estilos de OpenFreeMap. Tarda entre 1 y 2 horas.
