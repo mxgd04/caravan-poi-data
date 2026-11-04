@@ -48,6 +48,8 @@ python build_dataset.py --out dist \
 
 Genera `dist/pois-iberia.json.gz` y `dist/pois-iberia.meta.json`.
 
+`build_restrictions.py` (mismos argumentos) genera `dist/restrictions-iberia.json.gz` y `restrictions-iberia.meta.json`: restricciones que ORS no aplica (alto/ancho/peso/largo en nodos, vías físicamente estrechas), como `[id, lat, lon, rumbo, tipo, valor]` con tipo H/W/N/T/L.
+
 ## Mapa sin conexión
 
 Un segundo workflow (`.github/workflows/maps.yml`, "Construir mapa sin conexión") se ejecuta el día 1 de cada mes a las 04:00 UTC (también a mano desde Actions). Descarga los extractos de Geofabrik de España, Portugal y Andorra, los une con osmium y genera con [Planetiler](https://github.com/onthegomap/planetiler) (v0.10.2, fijada) un único `iberia.pmtiles` con el esquema OpenMapTiles hasta el zoom 14, el mismo que usan los estilos de OpenFreeMap. Tarda entre 1 y 2 horas.
