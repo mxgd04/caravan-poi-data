@@ -52,6 +52,10 @@ jobs:
             --region portugal:in/portugal.osm.pbf:in/portugal.poly \
             --region andorra:in/andorra.osm.pbf:in/andorra.poly
 
+      - name: Construir límites de velocidad
+        run: |
+          python build_speeds.py --out dist             --region spain:in/spain.osm.pbf:in/spain.poly             --region portugal:in/portugal.osm.pbf:in/portugal.poly             --region andorra:in/andorra.osm.pbf:in/andorra.poly
+
       - name: Publicar en la release "latest"
         env:
           GH_TOKEN: ${{ github.token }}
