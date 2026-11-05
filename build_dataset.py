@@ -53,7 +53,10 @@ KEEP_KEYS = [
     "maxlength", "reservation", "surface",
 ]
 # Solo para radares fijos (no se añaden al resto de POIs para no cambiar su salida)
-CAMERA_KEYS = ["maxspeed", "direction"]
+CAMERA_KEYS = ["maxspeed", "direction", "enforcement", "section", "section_id"]
+# Relaciones type=enforcement: semáforo (radar de semáforo) y velocidad media (radar de tramo)
+RED_LIGHT = {"traffic_signals", "red_light_camera"}
+AVERAGE_SPEED = "average_speed"
 FIRST_VALUE_KEYS = {"website", "contact:website", "phone", "contact:phone"}
 MAX_DESCRIPTION = 300
 
@@ -156,6 +159,78 @@ def read_region(path):
     return found
 
 
+def bearing_deg(a, b):
+    """Rumbo inicial entero (0 = norte) del punto a=(lat, lon) hacia b."""
+    lat1, lat2 = math.radians(a[0]), math.radians(b[0])
+    d_lon = math.radians(b[1] - a[1])
+    y = math.sin(d_lon) * math.cos(lat2)
+    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(d_lon)
+    return int(round((math.degrees(math.atan2(y, x)) + 360) % 360)) % 360
+
+
+def read_enforcement(path, stats):
+    """Radares de semáforo y de tramo (relaciones type=enforcement) como {id: (lat, lon, tags)}.
+
+    Solo se usan miembros nodo: device (la cámara), from/to (inicio y fin) y force. Dos pasadas:
+    relaciones (ids de nodos necesarios) y nodos (posición y tags).
+    """
+    rels = {}  # id -> (tags, {rol: id de nodo})
+    fp = (osmium.FileProcessor(path, osmium.osm.RELATION)
+          .with_filter(osmium.filter.TagFilter(("type", "enforcement"))))
+    for rel in fp:
+        tags = tag_dict(rel)
+        kind = tags.get("enforcement")
+        if kind not in RED_LIGHT and kind != AVERAGE_SPEED:
+            continue
+        roles = {}
+        for m in rel.members:
+            if m.type == "n" and m.role in ("device", "from", "to", "force"):
+                roles.setdefault(m.role, m.ref)
+        rels[rel.id] = (tags, roles)
+    wanted = {n for _, roles in rels.values() for n in roles.values()}
+    locs = {}  # id de nodo -> (lat, lon, tags)
+    if wanted:
+        fp2 = (osmium.FileProcessor(path, osmium.osm.NODE).with_filter(osmium.filter.IdFilter(wanted)))
+        for node in fp2:
+            if node.id in wanted and node.location.valid():
+                locs[node.id] = (node.location.lat, node.location.lon, tag_dict(node))
+
+    def point(roles, role):
+        n = roles.get(role)
+        return locs.get(n) if n is not None else None
+
+    found = {}
+    for rid, (tags, roles) in rels.items():
+        kind = tags["enforcement"]
+        device, start, end, force = (point(roles, r) for r in ("device", "from", "to", "force"))
+        maxspeed = tags.get("maxspeed") or (device[2].get("maxspeed") if device else None)
+        if kind == AVERAGE_SPEED:
+            if not start or not end:
+                stats["tramo omitido: falta from/to"] += 1
+                continue
+            base = {"highway": SPEED_CAMERA, "enforcement": AVERAGE_SPEED, "section_id": f"relation/{rid}"}
+            if maxspeed:
+                base["maxspeed"] = maxspeed
+            found[f"relation/{rid}/start"] = (start[0], start[1], {**base, "section": "start"})
+            found[f"relation/{rid}/end"] = (end[0], end[1], {**base, "section": "end"})
+            stats["tramo"] += 1
+        else:
+            at = device or start
+            if not at:
+                stats["semáforo omitido: falta device/from"] += 1
+                continue
+            out = {"highway": SPEED_CAMERA, "enforcement": "traffic_signals"}
+            origin = start or at
+            target = next((p for p in (end, force, device) if p and (p[0], p[1]) != (origin[0], origin[1])), None)
+            if target:
+                out["direction"] = str(bearing_deg(origin[:2], target[:2]))
+            if maxspeed:
+                out["maxspeed"] = maxspeed
+            found[f"relation/{rid}"] = (at[0], at[1], out)
+            stats["semáforo"] += 1
+    return found
+
+
 # ---- Teselas (misma fórmula que PoiTiles en la app) ----
 
 def tile_x(lon):
@@ -238,8 +313,8 @@ def tiles_for_poly(outer, holes):
 
 
 def sort_key(poi_id):
-    kind, num = poi_id.split("/")
-    return kind, int(num)
+    kind, num, *rest = poi_id.split("/")
+    return kind, int(num), rest
 
 
 def main():
@@ -259,6 +334,10 @@ def main():
         name, pbf, poly = m.groups()
         t = time.time()
         found = read_region(pbf)
+        enf_stats = collections.Counter()
+        found.update(read_enforcement(pbf, enf_stats))
+        if enf_stats:
+            print(f"[{name}] radares por relación: {dict(enf_stats)}")
         before = len(pois)
         for pid, value in found.items():
             pois.setdefault(pid, value)

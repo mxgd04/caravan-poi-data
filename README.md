@@ -29,6 +29,7 @@ URLs fijas:
 - `tiles`: teselas slippy z10 cuyo centro está dentro de algún polígono (`.poly`) de las regiones; son las que la app da por cubiertas y ya no pide a Overpass. Va antes de `pois`.
 - `pois`: `[id OSM, lat, lon, tags]`, con coordenadas a 6 decimales. Nodos con su coordenada; vías y relaciones con la media de las posiciones de sus nodos. Solo se conservan las etiquetas que lee la app (name, tourism, amenity, highway, parking, motorhome, caravan, sanitary_dump_station, drinking_water, water_point, power_supply, toilets, shower, fee, charge, website, phone, opening_hours, maxstay, capacity, access, etc.); en teléfono y web solo el primer valor separado por `;`.
 - Selección: `tourism` = caravan_site | camp_site; `amenity` = sanitary_dump_station | drinking_water | water_point | toilets | fuel; `sanitary_dump_station=yes`; `highway` = rest_area | services; `amenity=parking` con `motorhome` o `caravan` = yes | designated.
+- Radares: nodos `highway=speed_camera` y relaciones `type=enforcement`. Con `enforcement=traffic_signals` o `red_light_camera` se emite un radar de semáforo `relation/<id>` en el nodo `device` (`direction` = rumbo de `from` a `to`/`force`). Con `enforcement=average_speed` se emiten dos puntos, `relation/<id>/start` (nodo `from`) y `relation/<id>/end` (nodo `to`), con `section`, `section_id` y `maxspeed`. Solo se usan miembros nodo; se omiten las relaciones sin los nodos necesarios. El formato y la versión no cambian: una app antigua los trata como radares normales.
 
 ## Ejecutarlo a mano
 
