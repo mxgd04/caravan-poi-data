@@ -24,6 +24,19 @@ import time
 
 import osmium
 
+# Índice de nodos de osmium (--locations). Con "sparse_file_array,<ruta>" va a disco; se borra el fichero
+# antes de cada pasada para no reutilizar un índice de otro extracto.
+LOCATIONS = "flex_mem"
+
+
+def locations():
+    if LOCATIONS.startswith("sparse_file_array,"):
+        try:
+            os.remove(LOCATIONS.split(",", 1)[1])
+        except FileNotFoundError:
+            pass
+    return LOCATIONS
+
 ZOOM = 10
 N = 1 << ZOOM
 MAX_LAT = 85.0
@@ -119,7 +132,7 @@ def read_region(path):
     found = {}
     rel_members = {}  # id de relación -> (tags, [ids de vías])
     fp = (osmium.FileProcessor(path, osmium.osm.NODE | osmium.osm.WAY | osmium.osm.RELATION)
-          .with_locations("flex_mem")
+          .with_locations(locations())
           .with_filter(osmium.filter.TagFilter(*TAG_PAIRS)))
     for obj in fp:
         tags = tag_dict(obj)
@@ -142,7 +155,7 @@ def read_region(path):
         wanted = {w for _, ways in rel_members.values() for w in ways}
         centers = {}
         fp2 = (osmium.FileProcessor(path, osmium.osm.NODE | osmium.osm.WAY)
-               .with_locations("flex_mem")
+               .with_locations(locations())
                .with_filter(osmium.filter.IdFilter(wanted)))
         for way in fp2:
             # IdFilter también deja pasar nodos cuyo id coincide con el de una vía (espacios de ids distintos)
@@ -320,8 +333,13 @@ def sort_key(poi_id):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="dist")
+    ap.add_argument("--name", default="iberia", help="sufijo de los ficheros de salida")
+    ap.add_argument("--locations", default="flex_mem",
+                    help="índice de nodos de osmium: flex_mem o sparse_file_array,<ruta>")
     ap.add_argument("--region", action="append", required=True, metavar="NOMBRE:PBF:POLY")
     args = ap.parse_args()
+    global LOCATIONS
+    LOCATIONS = args.locations
 
     t0 = time.time()
     pois = {}
@@ -359,7 +377,7 @@ def main():
     generated = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     sorted_tiles = [f"{ZOOM}/{x}/{y}" for x, y in sorted(tiles)]
     os.makedirs(args.out, exist_ok=True)
-    gz_path = os.path.join(args.out, "pois-iberia.json.gz")
+    gz_path = os.path.join(args.out, f"pois-{args.name}.json.gz")
 
     def dump(o):
         return json.dumps(o, ensure_ascii=False, separators=(",", ":"))
@@ -375,9 +393,9 @@ def main():
         raw = f.read()
     meta = {
         "v": 1, "generated": generated, "count": len(entries), "tiles": len(sorted_tiles),
-        "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest(), "file": "pois-iberia.json.gz",
+        "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest(), "file": f"pois-{args.name}.json.gz",
     }
-    with open(os.path.join(args.out, "pois-iberia.meta.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(args.out, f"pois-{args.name}.meta.json"), "w", encoding="utf-8") as f:
         f.write(dump(meta))
 
     print("Por categoría:")

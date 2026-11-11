@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Escribe dist/maps-meta.json a partir de iberia.pmtiles, sus partes y map-assets.zip (solo biblioteca estándar)."""
+"""Escribe dist/maps-meta-<region>.json a partir de <region>.pmtiles, sus partes y map-assets.zip (solo biblioteca estándar).
+
+Con --legacy escribe además dist/maps-meta.json idéntico (compatibilidad con apps ya instaladas)."""
 import argparse
 import datetime
 import glob
@@ -26,6 +28,9 @@ def main():
     ap.add_argument("--name", default="iberia.pmtiles")
     ap.add_argument("--bbox", required=True, help="w,s,e,n")
     ap.add_argument("--maxzoom", type=int, default=14)
+    ap.add_argument("--region", default="iberia", help="id de la región; fichero de salida maps-meta-<region>.json")
+    ap.add_argument("--assets", default=None, help="ruta de map-assets.zip (por defecto <dist>/map-assets.zip)")
+    ap.add_argument("--legacy", action="store_true", help="escribe también maps-meta.json idéntico")
     args = ap.parse_args()
     whole = os.path.join(args.dist, args.name)
     parts = sorted(glob.glob(whole + ".part*"))
@@ -40,12 +45,15 @@ def main():
         "totalBytes": os.path.getsize(whole),
         "sha256": sha256(whole),
         "parts": [entry(p) for p in parts],
-        "assets": entry(os.path.join(args.dist, "map-assets.zip")),
+        "assets": entry(args.assets or os.path.join(args.dist, "map-assets.zip")),
+        "region": args.region,
     }
     if sum(p["bytes"] for p in meta["parts"]) != meta["totalBytes"]:
         raise SystemExit("Las partes no suman el tamaño total")
-    with open(os.path.join(args.dist, "maps-meta.json"), "w", encoding="utf-8") as f:
-        json.dump(meta, f, separators=(",", ":"))
+    names = [f"maps-meta-{args.region}.json"] + (["maps-meta.json"] if args.legacy else [])
+    for name in names:
+        with open(os.path.join(args.dist, name), "w", encoding="utf-8") as f:
+            json.dump(meta, f, separators=(",", ":"))
     print(json.dumps(meta, indent=1))
 
 

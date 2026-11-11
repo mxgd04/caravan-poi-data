@@ -22,6 +22,19 @@ from collections import Counter
 
 import osmium
 
+# Índice de nodos de osmium (--locations). Con "sparse_file_array,<ruta>" va a disco; se borra el fichero
+# antes de cada pasada para no reutilizar un índice de otro extracto.
+LOCATIONS = "flex_mem"
+
+
+def locations():
+    if LOCATIONS.startswith("sparse_file_array,"):
+        try:
+            os.remove(LOCATIONS.split(",", 1)[1])
+        except FileNotFoundError:
+            pass
+    return LOCATIONS
+
 from build_dataset import REGION_RE, tag_dict
 from build_lanes import direction
 from build_restrictions import bearing, dist_m
@@ -122,7 +135,7 @@ def walk(pts, speed, flags):
 def read_region(path, country, stats):
     items = []
     fp = (osmium.FileProcessor(path, osmium.osm.NODE | osmium.osm.WAY)
-          .with_locations("flex_mem")
+          .with_locations(locations())
           .with_filter(osmium.filter.KeyFilter("highway")))
     for way in fp:
         if not way.is_way():
@@ -153,8 +166,13 @@ def read_region(path, country, stats):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="dist")
+    ap.add_argument("--name", default="iberia", help="sufijo de los ficheros de salida")
+    ap.add_argument("--locations", default="flex_mem",
+                    help="índice de nodos de osmium: flex_mem o sparse_file_array,<ruta>")
     ap.add_argument("--region", action="append", required=True, metavar="NOMBRE:PBF:POLY")
     args = ap.parse_args()
+    global LOCATIONS
+    LOCATIONS = args.locations
 
     t0 = time.time()
     items = []
@@ -181,7 +199,7 @@ def main():
 
     generated = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     os.makedirs(args.out, exist_ok=True)
-    gz_path = os.path.join(args.out, "speeds-iberia.json.gz")
+    gz_path = os.path.join(args.out, f"speeds-{args.name}.json.gz")
 
     def dump(o):
         return json.dumps(o, ensure_ascii=False, separators=(",", ":"))
@@ -196,9 +214,9 @@ def main():
     estimated = sum(1 for it in unique if it[4] & ESTIMATED)
     meta = {
         "v": 1, "generated": generated, "count": len(unique), "estimated": estimated,
-        "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest(), "file": "speeds-iberia.json.gz",
+        "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest(), "file": f"speeds-{args.name}.json.gz",
     }
-    with open(os.path.join(args.out, "speeds-iberia.meta.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(args.out, f"speeds-{args.name}.meta.json"), "w", encoding="utf-8") as f:
         f.write(dump(meta))
 
     print("Por clase de vía:")

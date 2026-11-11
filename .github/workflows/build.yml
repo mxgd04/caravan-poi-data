@@ -11,9 +11,24 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pack: iberia
+            regions: spain portugal andorra
+            locations: flex_mem
+          - pack: france
+            regions: france monaco
+            locations: disk
     steps:
       - uses: actions/checkout@v4
+
+      - name: Liberar disco
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h
 
       - uses: actions/setup-python@v5
         with:
@@ -23,38 +38,53 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
+      - name: Directorio de trabajo
+        run: |
+          # Con índice de nodos en disco hace falta espacio: se usa /mnt si tiene más libre que /
+          WORK="$GITHUB_WORKSPACE"
+          if [ -d /mnt ]; then
+            free_root=$(df --output=avail -k / | tail -n 1)
+            free_mnt=$(df --output=avail -k /mnt | tail -n 1)
+            if [ "$free_mnt" -gt "$free_root" ]; then
+              sudo mkdir -p /mnt/work
+              sudo chown "$(id -u):$(id -g)" /mnt/work
+              WORK=/mnt/work
+            fi
+          fi
+          echo "WORK=$WORK" >> "$GITHUB_ENV"
+          echo "Directorio de trabajo: $WORK"
+          df -h
+
       - name: Descargar extractos de Geofabrik
         run: |
-          mkdir -p in
-          for region in spain portugal andorra; do
-            curl -fL --retry 3 -o "in/${region}.osm.pbf" "https://download.geofabrik.de/europe/${region}-latest.osm.pbf"
-            curl -fL --retry 3 -o "in/${region}.poly" "https://download.geofabrik.de/europe/${region}.poly"
+          mkdir -p "$WORK/in"
+          for region in ${{ matrix.regions }}; do
+            curl -fL --retry 3 -o "$WORK/in/${region}.osm.pbf" "https://download.geofabrik.de/europe/${region}-latest.osm.pbf"
+            curl -fL --retry 3 -o "$WORK/in/${region}.poly" "https://download.geofabrik.de/europe/${region}.poly"
           done
+          df -h
 
-      - name: Construir dataset
+      - name: Construir los datasets
         run: |
-          python build_dataset.py --out dist \
-            --region spain:in/spain.osm.pbf:in/spain.poly \
-            --region portugal:in/portugal.osm.pbf:in/portugal.poly \
-            --region andorra:in/andorra.osm.pbf:in/andorra.poly
-
-      - name: Construir restricciones viarias
-        run: |
-          python build_restrictions.py --out dist \
-            --region spain:in/spain.osm.pbf:in/spain.poly \
-            --region portugal:in/portugal.osm.pbf:in/portugal.poly \
-            --region andorra:in/andorra.osm.pbf:in/andorra.poly
-
-      - name: Construir carriles y carteles
-        run: |
-          python build_lanes.py --out dist \
-            --region spain:in/spain.osm.pbf:in/spain.poly \
-            --region portugal:in/portugal.osm.pbf:in/portugal.poly \
-            --region andorra:in/andorra.osm.pbf:in/andorra.poly
-
-      - name: Construir límites de velocidad
-        run: |
-          python build_speeds.py --out dist             --region spain:in/spain.osm.pbf:in/spain.poly             --region portugal:in/portugal.osm.pbf:in/portugal.poly             --region andorra:in/andorra.osm.pbf:in/andorra.poly
+          mkdir -p dist
+          REGIONS=""
+          for region in ${{ matrix.regions }}; do
+            REGIONS="$REGIONS --region ${region}:$WORK/in/${region}.osm.pbf:$WORK/in/${region}.poly"
+          done
+          for script in dataset restrictions lanes speeds; do
+            echo "::group::build_${script}.py"
+            if [ "${{ matrix.locations }}" = "disk" ]; then
+              # Índice de nodos en disco (con flex_mem Francia no cabe en 16 GB); el script lo borra entre pasadas
+              LOC="sparse_file_array,$WORK/nodes-${script}.idx"
+            else
+              LOC=flex_mem
+            fi
+            python build_${script}.py --out dist --name ${{ matrix.pack }} --locations "$LOC" $REGIONS
+            rm -f "$WORK/nodes-${script}.idx"
+            df -h
+            echo "::endgroup::"
+          done
+          ls -l dist
 
       - name: Publicar en la release "latest"
         env:

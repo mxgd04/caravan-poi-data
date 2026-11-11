@@ -9,19 +9,55 @@ permissions:
   contents: write
 
 env:
+  # gh se ejecuta también fuera del checkout (en /mnt/work): sin esto no sabe de qué repositorio es la release
+  GH_REPO: ${{ github.repository }}
   PLANETILER_VERSION: v0.10.2
   PLANETILER_SHA256: f310bd0413e2e4512b27f4046d418664e8e1d3bf31603c2a70e23de06c167e4d
 
 jobs:
-  maps:
+  assets:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Recursos de estilo (estilos, sprites, tipografías)
+        run: |
+          mkdir -p dist
+          python3 build_map_assets.py --out dist
+          ls -l dist
+
+      - name: Publicar map-assets.zip en la release "maps-latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view maps-latest >/dev/null 2>&1 || gh release create maps-latest --title "Mapa sin conexión" \
+            --notes "Mapa vectorial de España, Portugal, Andorra, Francia y Mónaco (OpenMapTiles, PMTiles). Mapa © OpenMapTiles © colaboradores de OpenStreetMap (ODbL) — https://www.openstreetmap.org/copyright"
+          gh release upload maps-latest dist/map-assets.zip --clobber
+
+  maps:
+    needs: assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - region: iberia
+            countries: spain portugal andorra
+            xmx: 12g
+          - region: france
+            countries: france monaco
+            xmx: 10g
     steps:
       - uses: actions/checkout@v4
 
       - name: Liberar disco
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL\
+            /usr/local/share/boost /usr/local/share/powershell /usr/local/julia* /usr/share/swift\
+            /opt/microsoft /usr/local/.ghcup /usr/share/miniconda
+          sudo docker image prune --all --force || true
           df -h
 
       - uses: actions/setup-java@v4
@@ -32,15 +68,37 @@ jobs:
       - name: Instalar osmium-tool
         run: sudo apt-get update && sudo apt-get install -y osmium-tool
 
+      - name: Directorio de trabajo
+        run: |
+          # Francia necesita ~15 GB (pbf, temporales de Planetiler y salida): se usa /mnt si tiene más libre que /
+          WORK="$GITHUB_WORKSPACE"
+          if [ -d /mnt ]; then
+            free_root=$(df --output=avail -k / | tail -n 1)
+            free_mnt=$(df --output=avail -k /mnt | tail -n 1)
+            if [ "$free_mnt" -gt "$free_root" ]; then
+              sudo mkdir -p /mnt/work
+              sudo chown "$(id -u):$(id -g)" /mnt/work
+              WORK=/mnt/work
+            fi
+          fi
+          echo "WORK=$WORK" >> "$GITHUB_ENV"
+          mkdir -p "$WORK/in" "$WORK/dist" "$WORK/data/sources" "$WORK/data/tmp"
+          # Planetiler trabaja en ./data: se redirige al directorio de trabajo
+          [ "$WORK" = "$GITHUB_WORKSPACE" ] || { rm -rf data; ln -s "$WORK/data" data; }
+          echo "Directorio de trabajo: $WORK"
+          df -h
+
       - name: Descargar y unir los extractos de Geofabrik
         run: |
-          mkdir -p in dist
-          for region in spain portugal andorra; do
-            curl -fL --retry 3 -o "in/${region}.osm.pbf" "https://download.geofabrik.de/europe/${region}-latest.osm.pbf"
+          for country in ${{ matrix.countries }}; do
+            curl -fL --retry 3 -o "$WORK/in/${country}.osm.pbf" "https://download.geofabrik.de/europe/${country}-latest.osm.pbf"
           done
-          osmium merge in/spain.osm.pbf in/portugal.osm.pbf in/andorra.osm.pbf -o in/iberia.osm.pbf
-          osmium fileinfo -e -g data.bbox in/iberia.osm.pbf | tee in/bbox.txt
-          rm in/spain.osm.pbf in/portugal.osm.pbf in/andorra.osm.pbf
+          df -h
+          files=""
+          for country in ${{ matrix.countries }}; do files="$files $WORK/in/${country}.osm.pbf"; done
+          osmium merge $files -o "$WORK/in/${{ matrix.region }}.osm.pbf"
+          osmium fileinfo -e -g data.bbox "$WORK/in/${{ matrix.region }}.osm.pbf" | tee "$WORK/in/bbox.txt"
+          for country in ${{ matrix.countries }}; do rm "$WORK/in/${country}.osm.pbf"; done
           df -h
 
       - name: Descargar Planetiler
@@ -74,40 +132,54 @@ jobs:
           fi
           ls -l data/sources
 
-      - name: Generar iberia.pmtiles (esquema OpenMapTiles)
+      - name: Generar ${{ matrix.region }}.pmtiles (esquema OpenMapTiles)
         run: |
           # --download baja las fuentes auxiliares (agua, lagos, Natural Earth); osmdata.openstreetmap.de falla a veces, de ahí los reintentos
+          # El heap deja RAM libre para los ficheros mmap (nodemap y almacenamiento de features)
           for attempt in 1 2 3; do
-            java -Xmx12g -jar planetiler.jar \
-              --osm-path=in/iberia.osm.pbf --output=dist/iberia.pmtiles \
+            java -Xmx${{ matrix.xmx }} -jar planetiler.jar \
+              --osm-path="$WORK/in/${{ matrix.region }}.osm.pbf" --output="$WORK/dist/${{ matrix.region }}.pmtiles" \
               --download --force --maxzoom=14 \
-              --storage=mmap --nodemap-type=sparsearray --nodemap-storage=mmap \
+              --storage=mmap --nodemap-type=sparsearray --nodemap-storage=mmap\
               && break
-            echo "Intento $attempt fallido"; sleep 60
+            echo "Intento $attempt fallido"; df -h; sleep 60
             [ "$attempt" = 3 ] && exit 1
           done
-          ls -l dist
+          ls -l "$WORK/dist"
           df -h
 
-      - name: Recursos de estilo (estilos, sprites, tipografías)
-        run: python3 build_map_assets.py --out dist
+      - name: Descargar map-assets.zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download maps-latest --pattern map-assets.zip --dir "$WORK/assets" --clobber
 
       - name: Partir en trozos de 1,9 GB y escribir los metadatos
         run: |
-          split -b 1900M -d -a 2 dist/iberia.pmtiles dist/iberia.pmtiles.part
-          python3 build_maps_meta.py --dist dist --bbox "$(tail -n 1 in/bbox.txt)" --maxzoom 14
+          cd "$WORK/dist"
+          split -b 1900M -d -a 2 "${{ matrix.region }}.pmtiles" "${{ matrix.region }}.pmtiles.part"
+          # El meta se calcula con el pmtiles entero y las partes; después se borra el entero (no se publica)
+          cd "$GITHUB_WORKSPACE"
+          LEGACY=""
+          [ "${{ matrix.region }}" = iberia ] && LEGACY="--legacy"
+          python3 build_maps_meta.py --dist "$WORK/dist" --name "${{ matrix.region }}.pmtiles" \
+            --region "${{ matrix.region }}" --assets "$WORK/assets/map-assets.zip" \
+            --bbox="$(tail -n 1 "$WORK/in/bbox.txt")" --maxzoom 14 $LEGACY
+          rm "$WORK/dist/${{ matrix.region }}.pmtiles"
+          ls -l "$WORK/dist"
+          df -h
 
       - name: Publicar en la release "maps-latest"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view maps-latest >/dev/null 2>&1 || gh release create maps-latest --title "Mapa sin conexión" \
-            --notes "Mapa vectorial de España, Portugal y Andorra (OpenMapTiles, PMTiles). Mapa © OpenMapTiles © colaboradores de OpenStreetMap (ODbL) — https://www.openstreetmap.org/copyright"
-          # Primero las partes y los recursos; el meta va el último para que la app nunca vea un meta que apunte a partes ausentes
-          gh release upload maps-latest dist/iberia.pmtiles.part* dist/map-assets.zip --clobber
-          # Partes obsoletas: las que ya no se han generado en esta ejecución (un mapa menor puede tener menos partes)
-          keep=$(cd dist && ls iberia.pmtiles.part*)
-          for asset in $(gh release view maps-latest --json assets --jq '.assets[].name' | grep '^iberia\.pmtiles\.part'); do
+          cd "$WORK/dist"
+          REGION=${{ matrix.region }}
+          # Primero las partes; el meta va el último para que la app nunca vea un meta que apunte a partes ausentes
+          gh release upload maps-latest ${REGION}.pmtiles.part* --clobber
+          # Partes obsoletas de ESTA región: las que ya no se han generado en esta ejecución (no se toca la otra región)
+          keep=$(ls ${REGION}.pmtiles.part*)
+          for asset in $(gh release view maps-latest --json assets --jq '.assets[].name' | grep "^${REGION}\.pmtiles\.part"); do
             echo "$keep" | grep -qx "$asset" || gh release delete-asset maps-latest "$asset" --yes
           done
-          gh release upload maps-latest dist/maps-meta.json --clobber
+          gh release upload maps-latest maps-meta-${REGION}.json --clobber
+          if [ -f maps-meta.json ]; then gh release upload maps-latest maps-meta.json --clobber; fi

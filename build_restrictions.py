@@ -22,6 +22,19 @@ from collections import Counter
 
 import osmium
 
+# Índice de nodos de osmium (--locations). Con "sparse_file_array,<ruta>" va a disco; se borra el fichero
+# antes de cada pasada para no reutilizar un índice de otro extracto.
+LOCATIONS = "flex_mem"
+
+
+def locations():
+    if LOCATIONS.startswith("sparse_file_array,"):
+        try:
+            os.remove(LOCATIONS.split(",", 1)[1])
+        except FileNotFoundError:
+            pass
+    return LOCATIONS
+
 from build_dataset import REGION_RE, tag_dict
 
 DRIVABLE = {
@@ -133,7 +146,7 @@ def read_region(path):
     pending = set(cand)
     items = {}
     fp = (osmium.FileProcessor(path, osmium.osm.NODE | osmium.osm.WAY)
-          .with_locations("flex_mem")
+          .with_locations(locations())
           .with_filter(osmium.filter.KeyFilter("highway")))
     for way in fp:
         if not way.is_way():
@@ -177,8 +190,13 @@ def read_region(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="dist")
+    ap.add_argument("--name", default="iberia", help="sufijo de los ficheros de salida")
+    ap.add_argument("--locations", default="flex_mem",
+                    help="índice de nodos de osmium: flex_mem o sparse_file_array,<ruta>")
     ap.add_argument("--region", action="append", required=True, metavar="NOMBRE:PBF:POLY")
     args = ap.parse_args()
+    global LOCATIONS
+    LOCATIONS = args.locations
 
     t0 = time.time()
     merged = {}
@@ -198,7 +216,7 @@ def main():
     counts = Counter(e[4] for e in entries)
     generated = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     os.makedirs(args.out, exist_ok=True)
-    gz_path = os.path.join(args.out, "restrictions-iberia.json.gz")
+    gz_path = os.path.join(args.out, f"restrictions-{args.name}.json.gz")
 
     def dump(o):
         return json.dumps(o, ensure_ascii=False, separators=(",", ":"))
@@ -212,9 +230,9 @@ def main():
         raw = f.read()
     meta = {
         "v": 1, "generated": generated, "count": len(entries), "kinds": dict(counts),
-        "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest(), "file": "restrictions-iberia.json.gz",
+        "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest(), "file": f"restrictions-{args.name}.json.gz",
     }
-    with open(os.path.join(args.out, "restrictions-iberia.meta.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(args.out, f"restrictions-{args.name}.meta.json"), "w", encoding="utf-8") as f:
         f.write(dump(meta))
 
     print("Por tipo:")
