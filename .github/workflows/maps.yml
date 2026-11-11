@@ -90,15 +90,17 @@ jobs:
 
       - name: Descargar y unir los extractos de Geofabrik
         run: |
+          # Los extractos van a una carpeta aparte: la región puede llamarse como un país (france)
+          mkdir -p "$WORK/src"
           for country in ${{ matrix.countries }}; do
-            curl -fL --retry 3 -o "$WORK/in/${country}.osm.pbf" "https://download.geofabrik.de/europe/${country}-latest.osm.pbf"
+            curl -fL --retry 3 -o "$WORK/src/${country}.osm.pbf" "https://download.geofabrik.de/europe/${country}-latest.osm.pbf"
           done
           df -h
           files=""
-          for country in ${{ matrix.countries }}; do files="$files $WORK/in/${country}.osm.pbf"; done
+          for country in ${{ matrix.countries }}; do files="$files $WORK/src/${country}.osm.pbf"; done
           osmium merge $files -o "$WORK/in/${{ matrix.region }}.osm.pbf"
           osmium fileinfo -e -g data.bbox "$WORK/in/${{ matrix.region }}.osm.pbf" | tee "$WORK/in/bbox.txt"
-          for country in ${{ matrix.countries }}; do rm "$WORK/in/${country}.osm.pbf"; done
+          rm -r "$WORK/src"
           df -h
 
       - name: Descargar Planetiler
