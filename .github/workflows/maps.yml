@@ -94,12 +94,13 @@ jobs:
           mkdir -p "$WORK/src"
           for country in ${{ matrix.countries }}; do
             curl -fL --retry 3 -o "$WORK/src/${country}.osm.pbf" "https://download.geofabrik.de/europe/${country}-latest.osm.pbf"
+            # El polígono del país da la zona que cubre el mapa (la caja de los datos llega muy lejos)
+            curl -fL --retry 3 -o "$WORK/in/${country}.poly" "https://download.geofabrik.de/europe/${country}.poly"
           done
           df -h
           files=""
           for country in ${{ matrix.countries }}; do files="$files $WORK/src/${country}.osm.pbf"; done
           osmium merge $files -o "$WORK/in/${{ matrix.region }}.osm.pbf"
-          osmium fileinfo -e -g data.bbox "$WORK/in/${{ matrix.region }}.osm.pbf" | tee "$WORK/in/bbox.txt"
           rm -r "$WORK/src"
           df -h
 
@@ -161,11 +162,13 @@ jobs:
           split -b 1900M -d -a 2 "${{ matrix.region }}.pmtiles" "${{ matrix.region }}.pmtiles.part"
           # El meta se calcula con el pmtiles entero y las partes; después se borra el entero (no se publica)
           cd "$GITHUB_WORKSPACE"
+          POLYS=""
+          for country in ${{ matrix.countries }}; do POLYS="$POLYS --poly $WORK/in/${country}.poly"; done
           LEGACY=""
           [ "${{ matrix.region }}" = iberia ] && LEGACY="--legacy"
           python3 build_maps_meta.py --dist "$WORK/dist" --name "${{ matrix.region }}.pmtiles" \
             --region "${{ matrix.region }}" --assets "$WORK/assets/map-assets.zip" \
-            --bbox="$(tail -n 1 "$WORK/in/bbox.txt")" --maxzoom 14 $LEGACY
+            $POLYS --maxzoom 14 $LEGACY
           rm "$WORK/dist/${{ matrix.region }}.pmtiles"
           ls -l "$WORK/dist"
           df -h
