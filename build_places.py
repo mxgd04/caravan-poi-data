@@ -31,6 +31,9 @@ BIG = {"city", "town"}
 ALT_KEYS = ["name:es", "name:fr", "name:pt", "name:ca", "name:eu", "name:gl"]
 MAX_ALTS = 4
 CONTEXT_KM = 25.0
+CITY_KM = 60.0  # pueblos y aldeas: ciudad de referencia
+URBAN_KM = 15.0  # barrios: su ciudad
+URBAN = {"suburb", "quarter", "neighbourhood"}
 CELL = 0.25  # grados de la rejilla de ciudades/pueblos
 
 
@@ -94,27 +97,46 @@ def in_bbox(poly_path, places):
     return kept
 
 
-def assign_context(places):
-    """Rellena "c" con la city/town más cercana a <= CONTEXT_KM, usando una rejilla de CELL grados."""
+def _grid(places, types):
     grid = defaultdict(list)
     for p in places:
-        if p["t"] in BIG:
+        if p["t"] in types:
             grid[(math.floor(p["y"] / CELL), math.floor(p["x"] / CELL))].append(p)
+    return grid
+
+
+def _nearest(grid, p, km):
+    """Lugar de la rejilla más cercano a p a <= km (None si no hay)."""
+    # km en grados de longitud crecen con la latitud: se calcula el alcance en celdas
+    dlat = km / 111.0
+    dlon = km / (111.0 * max(math.cos(math.radians(p["y"])), 0.1))
+    r0, r1 = math.floor((p["y"] - dlat) / CELL), math.floor((p["y"] + dlat) / CELL)
+    c0, c1 = math.floor((p["x"] - dlon) / CELL), math.floor((p["x"] + dlon) / CELL)
+    best, best_d = None, km * 1000.0
+    for r in range(r0, r1 + 1):
+        for c in range(c0, c1 + 1):
+            for q in grid.get((r, c), ()):
+                d = dist_m(p["y"], p["x"], q["y"], q["x"])
+                if d <= best_d and q is not p:
+                    best, best_d = q, d
+    return best
+
+
+def assign_context(places):
+    """Rellena "c" (para distinguir homónimos en la búsqueda):
+    - barrios (suburb/quarter/neighbourhood): su ciudad, la city/town más cercana a <= URBAN_KM;
+    - pueblos y aldeas: la city más cercana a <= CITY_KM ("Simancas · Valladolid"), y si no hay, la town más
+      cercana a <= CONTEXT_KM. Con la town más cercana sin más, "Simancas · Arroyo de la Encomienda" parecía
+      decir que Simancas pertenece a Arroyo."""
+    big = _grid(places, BIG)
+    cities = _grid(places, {"city"})
     for p in places:
         if p["t"] in BIG:
             continue
-        # 25 km en grados de longitud crecen con la latitud: se calcula el alcance en celdas
-        dlat = CONTEXT_KM / 111.0
-        dlon = CONTEXT_KM / (111.0 * max(math.cos(math.radians(p["y"])), 0.1))
-        r0, r1 = math.floor((p["y"] - dlat) / CELL), math.floor((p["y"] + dlat) / CELL)
-        c0, c1 = math.floor((p["x"] - dlon) / CELL), math.floor((p["x"] + dlon) / CELL)
-        best, best_d = None, CONTEXT_KM * 1000.0
-        for r in range(r0, r1 + 1):
-            for c in range(c0, c1 + 1):
-                for q in grid.get((r, c), ()):
-                    d = dist_m(p["y"], p["x"], q["y"], q["x"])
-                    if d <= best_d:
-                        best, best_d = q, d
+        if p["t"] in URBAN:
+            best = _nearest(big, p, URBAN_KM)
+        else:
+            best = _nearest(cities, p, CITY_KM) or _nearest(big, p, CONTEXT_KM)
         if best is not None:
             p["c"] = best["n"]
 
