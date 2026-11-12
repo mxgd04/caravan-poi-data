@@ -13,7 +13,7 @@ Una GitHub Action (`.github/workflows/build.yml`) se ejecuta cada lunes, constru
 - `pois-<paquete>.json.gz`: dataset comprimido.
 - `pois-<paquete>.meta.json`: `{"v","generated","count","tiles","bytes","sha256","file"}`; la app lo consulta primero para saber si hay una versión nueva y para verificar la descarga.
 
-`<paquete>` es `iberia` o `france`. Igual para `restrictions-`, `lanes-` y `speeds-` (cada uno con su `.json.gz` y su `.meta.json`). En la península los nombres no han cambiado. Regiones en la cabecera de los POIs: `spain`, `portugal`, `andorra` (iberia) y `france`, `monaco` (france).
+`<paquete>` es `iberia` o `france`. Igual para `restrictions-`, `lanes-`, `speeds-` y `places-` (cada uno con su `.json.gz` y su `.meta.json`). En la península los nombres no han cambiado. Regiones en la cabecera de los POIs: `spain`, `portugal`, `andorra` (iberia) y `france`, `monaco` (france).
 
 URLs fijas:
 
@@ -60,6 +60,8 @@ Todos los scripts admiten `--name <paquete>` (por defecto `iberia`; sustituye `i
 `build_lanes.py` (mismos argumentos) genera `dist/lanes-iberia.json.gz` y `lanes-iberia.meta.json`: carriles (`turn:lanes`, tipo `L`, en el final de la vía) y carteles (`destination`, `destination:ref`, salida; tipo `S`, en el inicio de la vía), como `[id, lat, lon, rumbo, tipo, ...]`.
 
 `build_speeds.py` (mismos argumentos) genera `dist/speeds-iberia.json.gz` y `speeds-iberia.meta.json`: límites de velocidad (`maxspeed`, incluidos los códigos implícitos `ES:urban`, `ES:rural`...) como muestras `[lat, lon, rumbo, km/h, flags, largo]` cada 200 m en el sentido de circulación. `flags`: bit 0 = vale en los dos sentidos, bit 1 = estimado (autopistas, vías living_street y, en España, troncales de sentido único sin dato en OSM). Los atributos con `mph` o sin valor numérico se ignoran.
+
+`build_places.py` (mismos argumentos; `--locations` se ignora porque solo lee nodos) genera `dist/places-iberia.json.gz` y `places-iberia.meta.json`: lugares para la búsqueda sin conexión de la app. Nodos `place` = city | town | village | suburb | hamlet | quarter | neighbourhood con `name`, dentro de la caja del `.poly` de su región, como `{"n","a","t","p","y","x","c"}`: nombre, hasta 4 nombres alternativos (`name:es/fr/pt/ca/eu/gl`, `alt_name`, `official_name`), tipo OSM, población (0 si falta), lat y lon a 5 decimales y contexto (la city/town más cercana a 25 km como máximo; vacío en city/town). Cabecera `{"v":1,"generated":...,"places":[...]}`.
 
 ## Mapa sin conexión
 

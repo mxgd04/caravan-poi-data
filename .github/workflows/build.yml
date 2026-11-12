@@ -71,7 +71,7 @@ jobs:
           for region in ${{ matrix.regions }}; do
             REGIONS="$REGIONS --region ${region}:$WORK/in/${region}.osm.pbf:$WORK/in/${region}.poly"
           done
-          for script in dataset restrictions lanes speeds; do
+          for script in dataset restrictions lanes speeds places; do
             echo "::group::build_${script}.py"
             if [ "${{ matrix.locations }}" = "disk" ]; then
               # Índice de nodos en disco (con flex_mem Francia no cabe en 16 GB); el script lo borra entre pasadas
